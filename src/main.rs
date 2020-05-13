@@ -35,6 +35,9 @@ use oauth2::Token;
 use regex::Regex;
 use time::Duration;
 
+#[macro_use]
+extern crate serde_json;
+
 fn main() {
     let cli_args = &App::new("Zoom Alfred Workflow")
         .subcommand(
@@ -128,6 +131,18 @@ fn extract_zoom_link(txt: String) -> Option<String> {
     return n;
 }
 
+fn extract_password(txt: String) -> Option<String> {
+    lazy_static! {
+        static ref RE: Regex = Regex::new(r"(Password: (\d+))").unwrap();
+    }
+
+    let n = RE.captures(txt.as_str()).iter().next().map(|c|
+        format!("{}", c.get(1).unwrap().as_str())
+    );
+
+    return n;
+}
+
 
 struct UrlExtractingAuthenticatorDelegate<'a> {
     verification_url : &'a mut String
@@ -200,7 +215,7 @@ fn permission_flow(action: PermissionAction, secret: ConsoleApplicationSecret, t
     v
 }
 
-fn main_flow(secret: ConsoleApplicationSecret, token_file: &String, search: String) -> Vec<alfred::Item> {
+fn main_flow(secret: ConsoleApplicationSecret, token_file: &String, search: String) -> Vec<alfred::Item> {    
     let auth = Authenticator::new(&secret.installed.unwrap(), DefaultAuthenticatorDelegate,
                                   new_client(), DiskTokenStorage::new(token_file).unwrap(), Some(FlowType::InstalledInteractive));
 
@@ -223,6 +238,10 @@ fn main_flow(secret: ConsoleApplicationSecret, token_file: &String, search: Stri
         let start = e.start.and_then(|dt| dt.date_time).and_then(|dt| DateTime::parse_from_rfc3339(dt.as_str()).ok());
         let creator = e.creator.and_then(|c| c.display_name.or(c.email));
 
+        let description = e.description.clone();
+        let password = description.and_then(|x| extract_password(x)).or(Some("No password".to_string())).and_then(|b| Some(b.replace("Password: ", "")));
+        // println!("{:?}", password);
+
         let meeting_code: Option<String> = e.conference_data.into_iter().flat_map(|c|
             c.entry_points.into_iter()
                 .flat_map(|e| e.into_iter()))
@@ -238,7 +257,7 @@ fn main_flow(secret: ConsoleApplicationSecret, token_file: &String, search: Stri
             let today_or_tomorrow = if start.unwrap().day() == Utc::today().day() { "Today" } else { "Tomorrow" };
             let item = alfred::ItemBuilder::new(format!("{} - {} at {}", summary, today_or_tomorrow, start.unwrap().time().format("%H:%M")))
                 .subtitle(creator.unwrap())
-                .arg(zoom.unwrap())
+                .arg(format!("{},{}", zoom.unwrap(),password.unwrap()))
                 .into_item();
             items.push(item);
         }
