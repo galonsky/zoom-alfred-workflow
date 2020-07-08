@@ -4,3 +4,4 @@
 *.iml
 dist
 .DS_Store
+event_example.json
