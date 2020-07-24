@@ -235,12 +235,22 @@ fn main_flow(secret: ConsoleApplicationSecret, token_file: &String, search: Stri
     let mut items: Vec<alfred::Item> = Vec::new();
 
     for e in events.items.unwrap() {
+        // Print the event for debugging
+        // let j = serde_json::to_string(&e);
+        // println!("{:?}", j);        
+
         let start = e.start.and_then(|dt| dt.date_time).and_then(|dt| DateTime::parse_from_rfc3339(dt.as_str()).ok());
         let creator = e.creator.and_then(|c| c.display_name.or(c.email));
 
         let description = e.description.clone();
-        let password = description.and_then(|x| extract_password(x)).or(Some("No password".to_string())).and_then(|b| Some(b.replace("Password: ", "")));
-        // println!("{:?}", password);
+
+        // Try to get the password in the description, but if there is conference data (googles new conference feature), override it with one found there
+        let mut password = description.and_then(|x| extract_password(x)).or(Some("No password".to_string())).and_then(|b| Some(b.replace("Password: ", "")));
+        if e.conference_data.is_some() {
+            if e.conference_data.clone().unwrap().notes.is_some() {
+                password = e.conference_data.clone().unwrap().notes.and_then(|b| Some(b.replace("Password: ", "")))
+            }
+        }
 
         let meeting_code: Option<String> = e.conference_data.into_iter().flat_map(|c|
             c.entry_points.into_iter()
@@ -248,9 +258,10 @@ fn main_flow(secret: ConsoleApplicationSecret, token_file: &String, search: Stri
             .find_map(|e| e.uri.and_then(|u| extract_zoom_link(u)));
 
 
-        let zoom = e.description.and_then(|d| extract_zoom_link(d))
-            .or(e.location.and_then(|l| extract_zoom_link(l)))
+        let zoom = e.location.and_then(|l| extract_zoom_link(l))
+            .or(e.description.and_then(|d| extract_zoom_link(d)))
             .or(meeting_code);
+        // println!("{:?}", zoom);        
 
         let summary = e.summary.unwrap();
         if zoom.is_some() && (search.is_empty() || summary.contains(search.as_str())) {
