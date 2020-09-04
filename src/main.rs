@@ -215,7 +215,7 @@ fn permission_flow(action: PermissionAction, secret: ConsoleApplicationSecret, t
     v
 }
 
-fn main_flow(secret: ConsoleApplicationSecret, token_file: &String, search: String) -> Vec<alfred::Item> {    
+fn main_flow(secret: ConsoleApplicationSecret, token_file: &String, search: String) -> Vec<alfred::Item> {
     let auth = Authenticator::new(&secret.installed.unwrap(), DefaultAuthenticatorDelegate,
                                   new_client(), DiskTokenStorage::new(token_file).unwrap(), Some(FlowType::InstalledInteractive));
 
@@ -237,10 +237,21 @@ fn main_flow(secret: ConsoleApplicationSecret, token_file: &String, search: Stri
     for e in events.items.unwrap() {
         // Print the event for debugging
         // let j = serde_json::to_string(&e);
-        // println!("{:?}", j);        
+        // println!("{:?}", j);
 
-        let start = e.start.and_then(|dt| dt.date_time).and_then(|dt| DateTime::parse_from_rfc3339(dt.as_str()).ok());
+        // println!("e.start {:?}", e.start);
+        let start = e.start.unwrap();
+        // println!("start {:?}", start);
+        let start_date = start.date;
+        // println!("start_date {:?}", start_date);
+        let start_date_time = start.date_time;
+        // println!("start_date_time {:?}", start_date_time);
+        let parsed_start_date = start_date.and_then(|dt| NaiveDate::parse_from_str(&dt, "%Y-%m-%d").ok());
+        // println!("parsed_start_date {:?}", parsed_start_date);
+        let parsed_start_date_time = start_date_time.and_then(|dt| DateTime::parse_from_rfc3339(&dt).ok());
+        // println!("parsed_start_date_time {:?}", parsed_start_date_time);
         let creator = e.creator.and_then(|c| c.display_name.or(c.email));
+
 
         let description = e.description.clone();
 
@@ -261,12 +272,17 @@ fn main_flow(secret: ConsoleApplicationSecret, token_file: &String, search: Stri
         let zoom = e.location.and_then(|l| extract_zoom_link(l))
             .or(e.description.and_then(|d| extract_zoom_link(d)))
             .or(meeting_code);
-        // println!("{:?}", zoom);        
+        // println!("{:?}", zoom);
 
         let summary = e.summary.unwrap();
         if zoom.is_some() && (search.is_empty() || summary.contains(search.as_str())) {
-            let today_or_tomorrow = if start.unwrap().day() == Utc::today().day() { "Today" } else { "Tomorrow" };
-            let item = alfred::ItemBuilder::new(format!("{} - {} at {}", summary, today_or_tomorrow, start.unwrap().time().format("%H:%M")))
+            let today_or_tomorrow = if !parsed_start_date.is_some() || parsed_start_date.unwrap().day() == Utc::today().day() { "Today" } else { "Tomorrow" };
+            let mut title = format!("{} - {} (All Day)", summary, today_or_tomorrow);
+            if parsed_start_date_time.is_some() {
+                let timing = parsed_start_date_time.unwrap().time().format("%H:%M");
+                title = format!("{} - {} at {}", summary, today_or_tomorrow, timing);
+            }
+            let item = alfred::ItemBuilder::new(title)
                 .subtitle(creator.unwrap())
                 .arg(format!("{},{}", zoom.unwrap(),password.unwrap()))
                 .into_item();
